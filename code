@@ -1,0 +1,144 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+import random
+import scipy.stats
+import statistics
+
+# Finding the area of the net that the kicker can score in
+def net_area(x):
+  assert(0 <= x <= 36)
+  ra = 12 # Distance from which the width of the net where the kicker can score in is reduced, assuming that the kicker can effectively shoot at max 45 degrees left and right
+  rb = 8 # Distance from which the height of the net where the kicker can score in is reduced, assuming that the kicker can effectively shoot at max 45 vertically
+  if ra <= x <= 36:
+    return 24*8
+  elif rb <= x <= ra:
+    return (8 * (x*24/ra))
+  else:
+    return ((x*8/rb)*(x*24/ra))
+
+area_of_coverage = 6.17*6.2 # Average height of a keeper times their wingspan
+area_of_keeper = 23.5 # Body surface area of keeper of average height
+
+# Finding the coverage area a keeper has based on how far the ball is kicked from
+
+def keeper_coverage(x):
+  assert(0 <= x <= 36)
+  if 30.8 <= x <= 36:
+    return area_of_coverage
+  else:
+    return x*((area_of_coverage - area_of_keeper)/(30.8-0)) + 23.5
+
+# For large enough distances, the kicker can miss the net
+
+def chance_of_missing(x):
+    if 12 <= x <= 36 and random.uniform(0,1) < 0.043 - (x-12)*(0.043)/(36-12):
+      return True
+    else:
+      return False
+
+def chance_of_saving(x):
+  return min(1,0.00086444*x**2 - 0.034578 * x + 1.05072)
+
+#  Simulation function for one keeper
+def score(distance,nattempts):
+  outcome = np.array([0,0,0]) # Storing as [scored,saved,missed]
+  for _ in range(nattempts):
+    if chance_of_missing(distance): # Check if shot is on target
+      outcome[2] += 1
+    if random.uniform(0,1) < keeper_coverage(distance)/net_area(distance)*chance_of_saving(distance): # Check if shot is within the area covered by the keeper and whether he has saved it
+      outcome[1] += 1
+    else:
+      outcome[0] += 1
+  return outcome/nattempts
+
+#  Simulation function for two keepers
+def score_2keepers(distance,nattempts):
+  outcome = np.array([0,0,0]) # Storing as [scored,saved,missed]
+  for _ in range(nattempts):
+    if chance_of_missing(distance): # Check if shot is on target
+      outcome[2] += 1
+    if random.uniform(0,1) < 2*keeper_coverage(distance)/net_area(distance)*chance_of_saving(distance): # Check if shot is within the area covered by the keeper and whether he has saved it
+      outcome[1] += 1
+    else:
+      outcome[0] += 1
+  return outcome/nattempts
+
+nsteps = 36 # number of positions the penalty will be taken from
+attempts = 10000 # number of attempts per position
+nsimulations = 30 # number of simulations run
+x = np.linspace(1,36,nsteps)
+y = np.zeros(nsteps)
+e = np.zeros(nsteps)
+
+y=[] # array to store informations from all simulations
+for i in range(nsimulations):
+  yy = []
+  for j in range(nsteps):
+    yy.append(score(x[j],attempts)[0])
+  y.append(yy)
+
+y2=[] # array to store informations from 2 keeper simulations
+for i in range(nsimulations):
+  yy2 = []
+  for j in range(nsteps):
+    yy2.append(score_2keepers(x[j],attempts)[0])
+  y2.append(yy2)
+
+def calculate_stats(array): # function to calculate statistics about the arrays
+    num_subarrays = len(array)
+    array_length = len(array[0])
+
+    average_array = [0] * array_length
+    max_indices = [0] * num_subarrays
+    max_values = [0] * num_subarrays
+    # Calculate average array and find max indices and values
+    for i in range(array_length):
+        # Calculate average for each column
+        column_sum = sum(subarray[i] for subarray in array)
+        average_array[i] = column_sum / num_subarrays
+        # Find max index and value for each subarray
+        for j in range(num_subarrays):
+            if array[j][i] > max_values[j]:
+                max_values[j] = array[j][i]
+                max_indices[j] = i
+    # Calculate average max value
+    average_max_value = sum(max_values) / num_subarrays
+    #Calculate mode of max_indices
+    maxindex = np.argmax(average_array)
+    return average_array, maxindex, average_max_value
+
+# store 2 scenarios
+result = calculate_stats(y)
+result2 = calculate_stats(y2)
+# needed for error bars
+std_dev = np.std(y, axis=0)
+std_dev2 = np.std(y2, axis=0)
+# plots
+plt.bar(x,result[0],width=0.9, label = 'one keeper', color='b')
+plt.bar(x,result2[0],width=0.9, label = 'two keepers', color='r')
+plt.errorbar(x,result[0],yerr=scipy.stats.norm.ppf(0.95)*std_dev,fmt='k.')
+plt.errorbar(x,result2[0],yerr=scipy.stats.norm.ppf(0.95)*std_dev2,fmt='k.')
+plt.ylabel("Chance of scoring")
+plt.xlabel("Distance from net in feet")
+plt.legend()
+plt.show()
+
+
+def find_position(arr,p,distances): # function find the distance x that gives chance of scoring closest to p
+  assert(0.5<=p<=0.9)
+  size = len(arr)
+  dist = np.zeros(size)
+  for i in range(size):
+    dist[i] = abs(arr[i] - p)
+  index = np.argmin(dist)
+  return distances[index]
+
+s_rate = 0.85
+s_rate2 = 0.6
+print("One keeper results:")
+print("Maximum chance of scoring is at", x[result[1]], "feet from the goal, where you will have a", result[0][result[1]], "chance of scoring. Compared to the original chance of scoring of ", result[0][-1], "at the original distance of 36 feet.")
+print("If you want a penalty to have close to " + str(s_rate*100) + "% success rate, place the ball " + str(find_position(result[0],s_rate,x)) +  " feet away from the net.")
+print("Two keeper results:")
+print("Maximum chance of scoring is at", x[result2[1]], "feet from the goal, where you will have a", result2[0][result2[1]], "chance of scoring. Compared to the original chance of scoring of ", result2[0][-1], "at the original distance of 36 feet.")
+print("If you want a penalty to have close to " + str(s_rate2*100) + "% success rate, place the ball " + str(find_position(result2[0],s_rate2,x)) +  " feet away from the net.")
